@@ -13,12 +13,23 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Lucide Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Firebase SDKs -->
+    <script src="https://www.gstatic.com/firebasejs/11.6.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/11.6.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore-compat.js"></script>
+    
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
         body { font-family: 'Inter', sans-serif; }
         .custom-scrollbar::-webkit-scrollbar { width: 6px; }
         .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 10px; }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .animate-fade-in { animation: fadeIn 0.3s ease-out forwards; }
     </style>
 </head>
 <body class="bg-slate-50 text-slate-900">
@@ -27,28 +38,36 @@
     <script type="text/babel">
         const { useState, useMemo, useEffect, useRef } = React;
 
-        /**
-         * Enhanced Icon Component
-         * Fixed: Uses a ref and manually managed innerHTML to prevent React's 
-         * reconciliation from conflicting with Lucide's DOM manipulation.
-         */
+        // --- FIREBASE INITIALIZATION ---
+        const firebaseConfig = {
+            apiKey: "AIzaSyC5k5UlWkKvuvESjnxP2hVp-wItaE4Mw4Q",
+            authDomain: "company-dir-91248.firebaseapp.com",
+            projectId: "company-dir-91248",
+            storageBucket: "company-dir-91248.firebasestorage.app",
+            messagingSenderId: "945717314104",
+            appId: "1:945717314104:web:214ae315f557e7281d1ccd",
+            measurementId: "G-86ZNRXX74G"
+        };
+
+        const appId = 'company-dir-91248';
+        
+        if (!firebase.apps.length) {
+            firebase.initializeApp(firebaseConfig);
+        }
+        const auth = firebase.auth();
+        const db = firebase.firestore();
+
         const Icon = ({ name, size = 18, className = "" }) => {
             const containerRef = useRef(null);
-
             useEffect(() => {
                 if (window.lucide && containerRef.current) {
                     containerRef.current.innerHTML = `<i data-lucide="${name}"></i>`;
                     window.lucide.createIcons({
                         root: containerRef.current,
-                        attrs: {
-                            width: size,
-                            height: size,
-                            class: className
-                        }
+                        attrs: { width: size, height: size, class: className }
                     });
                 }
             }, [name, size, className]);
-
             return <span ref={containerRef} className="inline-flex items-center justify-center leading-none"></span>;
         };
 
@@ -72,39 +91,10 @@
         );
 
         const App = () => {
-            const [employees, setEmployees] = useState([
-                {
-                    id: '1',
-                    empId: 'CORP-101',
-                    status: 'Active',
-                    branch: 'Bangalore',
-                    team: 'Engineering',
-                    designation: 'Senior Software Engineer',
-                    fullName: 'Arjun Sharma',
-                    firstName: 'Arjun',
-                    lastName: 'Sharma',
-                    preferredName: 'Arj',
-                    dob: '1992-05-15',
-                    number: '9876543210',
-                    email: 'arjun.personal@gmail.com',
-                    additionalEmails: ['arjun.alt@outlook.com'],
-                    primaryCompanyMail: 'arjun.sharma@hq.company.com',
-                    aadhar: '1234-5678-9012',
-                    pan: 'ABCDE1234F',
-                    lead: 'Siddharth V',
-                    manager: 'Priya Nair',
-                    itAsset: 'Laptop',
-                    systemDetails: {
-                        processor: 'Apple M2',
-                        macId: '00:1A:2B:3C:4D:5E',
-                        model: 'MacBook Pro 14"',
-                        cpuType: 'ARM'
-                    },
-                    deskExtensions: ['Ext 402'],
-                    directNumbers: ['+91 80 4455 6677']
-                }
-            ]);
-
+            const [user, setUser] = useState(null);
+            const [employees, setEmployees] = useState([]);
+            const [loading, setLoading] = useState(true);
+            const [authError, setAuthError] = useState(null);
             const [searchTerm, setSearchTerm] = useState('');
             const [selectedBranch, setSelectedBranch] = useState('All');
             const [selectedTeam, setSelectedTeam] = useState('All');
@@ -112,27 +102,57 @@
             const [selectedEmployee, setSelectedEmployee] = useState(null);
             const [isModalOpen, setIsModalOpen] = useState(false);
             const [editingEmployee, setEditingEmployee] = useState(null);
+            const [deleteConfirmId, setDeleteConfirmId] = useState(null);
 
             const initialFormState = {
                 empId: '', status: 'Active', branch: '', team: '', designation: '', fullName: '', 
                 firstName: '', lastName: '', preferredName: '', dob: '', number: '', 
-                email: '', additionalEmails: [], primaryCompanyMail: '', aadhar: '', 
+                email: '', additionalEmails: [], primaryCompanyMail: '', 
+                additionalCompanyMails: [], aadhar: '', 
                 pan: '', lead: '', manager: '', itAsset: 'Laptop', processor: '', 
                 macId: '', model: '', cpuType: 'x86_64', deskExtensions: [], directNumbers: []
             };
             const [formData, setFormData] = useState(initialFormState);
 
-            const branches = useMemo(() => ['All', ...new Set(employees.map(e => e.branch))].filter(Boolean), [employees]);
-            const teams = useMemo(() => ['All', ...new Set(employees.map(e => e.team))].filter(Boolean), [employees]);
-            const statuses = ['All', 'Active', 'Notice Period', 'Resigned', 'Terminated', 'Absconded'];
+            useEffect(() => {
+                const initAuth = async () => {
+                    try {
+                        await auth.signInAnonymously();
+                    } catch (error) {
+                        setAuthError(error.message);
+                    }
+                };
+                initAuth();
+                const unsubscribe = auth.onAuthStateChanged((u) => {
+                    setUser(u);
+                    if (u) setAuthError(null);
+                });
+                return () => unsubscribe();
+            }, []);
+
+            useEffect(() => {
+                if (!user) return;
+                const employeesCollection = db.collection('artifacts').doc(appId).collection('public').doc('data').collection('employees');
+                const unsubscribe = employeesCollection.onSnapshot(
+                    (snapshot) => {
+                        const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                        setEmployees(data);
+                        setLoading(false);
+                    },
+                    (error) => {
+                        setLoading(false);
+                    }
+                );
+                return () => unsubscribe();
+            }, [user]);
 
             const filteredEmployees = useMemo(() => {
                 return employees.filter(emp => {
                     const s = searchTerm.toLowerCase();
-                    return (emp.fullName.toLowerCase().includes(s) || 
-                            emp.email.toLowerCase().includes(s) || 
-                            emp.designation.toLowerCase().includes(s) ||
-                            emp.empId.toLowerCase().includes(s)) &&
+                    return (emp.fullName?.toLowerCase().includes(s) || 
+                            emp.email?.toLowerCase().includes(s) || 
+                            emp.designation?.toLowerCase().includes(s) ||
+                            emp.empId?.toLowerCase().includes(s)) &&
                            (selectedBranch === 'All' || emp.branch === selectedBranch) &&
                            (selectedTeam === 'All' || emp.team === selectedTeam) &&
                            (selectedStatus === 'All' || emp.status === selectedStatus);
@@ -145,12 +165,13 @@
                     setFormData({
                         ...emp,
                         additionalEmails: [...(emp.additionalEmails || [])],
+                        additionalCompanyMails: [...(emp.additionalCompanyMails || [])],
                         deskExtensions: [...(emp.deskExtensions || [])],
                         directNumbers: [...(emp.directNumbers || [])],
-                        processor: emp.systemDetails.processor,
-                        macId: emp.systemDetails.macId,
-                        model: emp.systemDetails.model,
-                        cpuType: emp.systemDetails.cpuType,
+                        processor: emp.systemDetails?.processor || '',
+                        macId: emp.systemDetails?.macId || '',
+                        model: emp.systemDetails?.model || '',
+                        cpuType: emp.systemDetails?.cpuType || 'x86_64',
                     });
                 } else {
                     setEditingEmployee(null);
@@ -159,12 +180,15 @@
                 setIsModalOpen(true);
             };
 
-            const handleSave = (e) => {
+            const handleSave = async (e) => {
                 e.preventDefault();
+                if (!user) return;
+
                 const preparedData = {
                     ...formData,
-                    id: editingEmployee ? editingEmployee.id : Date.now().toString(),
+                    updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
                     additionalEmails: formData.additionalEmails.map(s => s.trim()).filter(Boolean),
+                    additionalCompanyMails: formData.additionalCompanyMails.map(s => s.trim()).filter(Boolean),
                     deskExtensions: formData.deskExtensions.map(s => s.trim()).filter(Boolean),
                     directNumbers: formData.directNumbers.map(s => s.trim()).filter(Boolean),
                     systemDetails: {
@@ -175,62 +199,70 @@
                     }
                 };
 
-                if (editingEmployee) {
-                    setEmployees(employees.map(emp => emp.id === editingEmployee.id ? preparedData : emp));
-                    setSelectedEmployee(preparedData);
-                } else {
-                    setEmployees([...employees, preparedData]);
+                delete preparedData.processor; delete preparedData.macId; delete preparedData.model; delete preparedData.cpuType;
+
+                const employeesCollection = db.collection('artifacts').doc(appId).collection('public').doc('data').collection('employees');
+
+                try {
+                    if (editingEmployee) {
+                        await employeesCollection.doc(editingEmployee.id).update(preparedData);
+                    } else {
+                        preparedData.createdAt = firebase.firestore.FieldValue.serverTimestamp();
+                        await employeesCollection.add(preparedData);
+                    }
+                    setIsModalOpen(false);
+                } catch (error) {
+                    console.error("Save error:", error);
                 }
-                setIsModalOpen(false);
             };
 
-            const addDynamicField = (field) => {
-                setFormData({ ...formData, [field]: [...formData[field], ''] });
-            };
-
+            const addDynamicField = (field) => setFormData({ ...formData, [field]: [...formData[field], ''] });
             const removeDynamicField = (field, index) => {
                 const newList = [...formData[field]];
                 newList.splice(index, 1);
                 setFormData({ ...formData, [field]: newList });
             };
-
             const updateDynamicField = (field, index, value) => {
                 const newList = [...formData[field]];
                 newList[index] = value;
                 setFormData({ ...formData, [field]: newList });
             };
 
-            const handleDelete = (id) => {
-                if (confirm("Delete this record permanently?")) {
-                    setEmployees(employees.filter(e => e.id !== id));
-                    setSelectedEmployee(null);
-                }
+            const handleDelete = async () => {
+                if (!user || !deleteConfirmId) return;
+                const employeesCollection = db.collection('artifacts').doc(appId).collection('public').doc('data').collection('employees');
+                try {
+                    await employeesCollection.doc(deleteConfirmId).delete();
+                    if (selectedEmployee?.id === deleteConfirmId) setSelectedEmployee(null);
+                    setDeleteConfirmId(null);
+                } catch (error) { console.error(error); }
             };
 
-            const exportToCSV = () => {
-                const headers = ["Emp ID", "Status", "Branch", "Team", "Designation", "Full Name", "Personal Email", "Work Email", "Extensions", "Direct Lines", "Lead", "Manager"];
-                const rows = employees.map(e => [
-                    e.empId, e.status, e.branch, e.team, e.designation, e.fullName, 
-                    e.email, e.primaryCompanyMail, e.deskExtensions.join('; '), e.directNumbers.join('; '), e.lead, e.manager
-                ]);
-                const csvContent = [headers, ...rows].map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n");
-                const link = document.createElement("a");
-                link.href = URL.createObjectURL(new Blob([csvContent], { type: 'text/csv;charset=utf-8;' }));
-                link.download = `corp_directory_export.csv`;
-                link.click();
-            };
+            const branches = useMemo(() => ['All', ...new Set(employees.map(e => e.branch))].filter(Boolean), [employees]);
+            const teams = useMemo(() => ['All', ...new Set(employees.map(e => e.team))].filter(Boolean), [employees]);
+            const statuses = ['All', 'Active', 'Notice Period', 'Resigned', 'Terminated', 'Absconded'];
+
+            if (authError) return <div className="min-h-screen flex items-center justify-center p-6 text-center"><div><Icon name="alert-circle" className="text-red-600 mb-2" size={32} /><h2 className="text-xl font-bold">Service Error</h2><p className="text-slate-500">{authError}</p></div></div>;
+            if (loading && !user) return <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50"><div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div><p className="mt-4 text-slate-500 font-bold uppercase tracking-widest text-[10px]">Initializing...</p></div>;
 
             return (
                 <div className="min-h-screen flex flex-col">
                     <header className="bg-white border-b border-slate-200 sticky top-0 z-30 px-6 py-4 shadow-sm">
                         <div className="max-w-7xl mx-auto flex items-center justify-between">
                             <div className="flex items-center gap-3">
-                                <div className="bg-blue-600 p-2 rounded-lg flex items-center justify-center"><Icon name="users" className="text-white" /></div>
+                                <div className="bg-blue-600 p-2 rounded-lg flex items-center justify-center shadow-lg shadow-blue-200"><Icon name="users" className="text-white" /></div>
                                 <h1 className="text-xl font-extrabold tracking-tight text-slate-800">CorpDir <span className="text-blue-600">Pro</span></h1>
                             </div>
                             <div className="flex gap-2">
                                 <button onClick={() => handleOpenModal()} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-bold text-sm transition-all active:scale-95"><Icon name="plus" size={16}/> Add Employee</button>
-                                <button onClick={exportToCSV} className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg font-bold text-sm transition-all"><Icon name="download" size={16}/> Export</button>
+                                <button onClick={() => {
+                                    const headers = ["Emp ID", "Name", "Primary Work Email", "Additional Work Emails"];
+                                    const rows = employees.map(e => [e.empId, e.fullName, e.primaryCompanyMail, e.additionalCompanyMails?.join('; ') || '']);
+                                    const csv = [headers, ...rows].map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n");
+                                    const link = document.createElement("a");
+                                    link.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+                                    link.download = `corp_directory.csv`; link.click();
+                                }} className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg font-bold text-sm transition-all"><Icon name="download" size={16}/> Export</button>
                             </div>
                         </div>
                     </header>
@@ -239,38 +271,29 @@
                         <div className="bg-white rounded-xl shadow-sm border p-4 mb-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
                             <div className="relative lg:col-span-1">
                                 <Icon name="search" size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                                <input type="text" placeholder="Search ID, name..." className="w-full pl-10 pr-4 py-2 bg-slate-50 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+                                <input type="text" placeholder="Search ID, Name..." className="w-full pl-10 pr-4 py-2 bg-slate-50 border rounded-lg text-sm outline-none" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
                             </div>
-                            <select className="p-2 bg-slate-50 border rounded-lg text-sm outline-none" value={selectedBranch} onChange={e => setSelectedBranch(e.target.value)}>
-                                {branches.map(b => <option key={b} value={b}>{b === 'All' ? 'All Branches' : b}</option>)}
-                            </select>
-                            <select className="p-2 bg-slate-50 border rounded-lg text-sm outline-none" value={selectedTeam} onChange={e => setSelectedTeam(e.target.value)}>
-                                {teams.map(t => <option key={t} value={t}>{t === 'All' ? 'All Teams' : t}</option>)}
-                            </select>
-                            <select className="p-2 bg-slate-50 border rounded-lg text-sm outline-none" value={selectedStatus} onChange={e => setSelectedStatus(e.target.value)}>
-                                {statuses.map(s => <option key={s} value={s}>{s === 'All' ? 'All Status' : s}</option>)}
-                            </select>
-                            <div className="flex items-center justify-end font-black text-blue-600 text-[10px] uppercase tracking-tighter">
-                                {filteredEmployees.length} RECORDS
-                            </div>
+                            <select className="p-2 bg-slate-50 border rounded-lg text-sm" value={selectedBranch} onChange={e => setSelectedBranch(e.target.value)}>{branches.map(b => <option key={b} value={b}>{b}</option>)}</select>
+                            <select className="p-2 bg-slate-50 border rounded-lg text-sm" value={selectedTeam} onChange={e => setSelectedTeam(e.target.value)}>{teams.map(t => <option key={t} value={t}>{t}</option>)}</select>
+                            <select className="p-2 bg-slate-50 border rounded-lg text-sm" value={selectedStatus} onChange={e => setSelectedStatus(e.target.value)}>{statuses.map(s => <option key={s} value={s}>{s}</option>)}</select>
+                            <div className="flex items-center justify-end font-black text-blue-600 text-[10px] uppercase tracking-tighter">{filteredEmployees.length} RECORDS</div>
                         </div>
 
-                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-full items-start">
+                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
                             <div className={`lg:col-span-1 space-y-2 ${selectedEmployee ? 'hidden lg:block' : 'block'}`}>
                                 {filteredEmployees.map(emp => (
-                                    <div key={emp.id} onClick={() => setSelectedEmployee(emp)} className={`p-4 rounded-xl border cursor-pointer transition-all flex items-center justify-between group ${selectedEmployee?.id === emp.id ? 'bg-blue-600 border-blue-600 text-white shadow-lg translate-x-1' : 'bg-white hover:border-blue-300'}`}>
+                                    <div key={emp.id} onClick={() => setSelectedEmployee(emp)} className={`p-4 rounded-xl border cursor-pointer transition-all flex items-center justify-between group animate-fade-in ${selectedEmployee?.id === emp.id ? 'bg-blue-600 border-blue-600 text-white shadow-lg translate-x-1' : 'bg-white hover:border-blue-300'}`}>
                                         <div className="flex items-center gap-3 overflow-hidden">
                                             <div className="relative shrink-0">
                                                 <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-xs ${selectedEmployee?.id === emp.id ? 'bg-white/20' : 'bg-slate-100 text-slate-600'}`}>
-                                                    {emp.firstName?.[0]}{emp.lastName?.[0]}
+                                                    {(emp.firstName?.[0] || emp.fullName?.[0] || '?').toUpperCase()}
+                                                    {(emp.lastName?.[0] || '').toUpperCase()}
                                                 </div>
-                                                <div className={`absolute -bottom-1 -right-1 w-3 h-3 rounded-full border-2 ${selectedEmployee?.id === emp.id ? 'border-blue-600' : 'border-white'} ${STATUS_CONFIG[emp.status].color.split(' ')[0]}`}></div>
+                                                <div className={`absolute -bottom-1 -right-1 w-3 h-3 rounded-full border-2 ${selectedEmployee?.id === emp.id ? 'border-blue-600' : 'border-white'} ${STATUS_CONFIG[emp.status]?.color.split(' ')[0] || 'bg-slate-400'}`}></div>
                                             </div>
                                             <div className="overflow-hidden">
                                                 <div className="font-bold truncate text-sm leading-tight">{emp.fullName}</div>
-                                                <div className={`text-[10px] font-black uppercase truncate tracking-tighter ${selectedEmployee?.id === emp.id ? 'text-blue-100' : 'text-blue-600'}`}>
-                                                    {emp.empId} • {emp.designation}
-                                                </div>
+                                                <div className={`text-[10px] font-black uppercase truncate tracking-tighter ${selectedEmployee?.id === emp.id ? 'text-blue-100' : 'text-blue-600'}`}>{emp.empId} • {emp.designation}</div>
                                             </div>
                                         </div>
                                         <Icon name="chevron-right" size={14} className={selectedEmployee?.id === emp.id ? 'opacity-50' : 'text-slate-300'} />
@@ -280,24 +303,20 @@
 
                             <div className="lg:col-span-2">
                                 {selectedEmployee ? (
-                                    <div className="bg-white rounded-2xl shadow-xl border overflow-hidden">
+                                    <div className="bg-white rounded-2xl shadow-xl border overflow-hidden animate-fade-in">
                                         <div className="bg-slate-900 p-6 md:p-8 text-white relative">
                                             <div className="absolute top-4 right-4 flex gap-2">
                                                 <button onClick={() => handleOpenModal(selectedEmployee)} className="p-2 bg-white/10 hover:bg-white/20 rounded-lg transition-colors"><Icon name="edit-2" size={16}/></button>
-                                                <button onClick={() => handleDelete(selectedEmployee.id)} className="p-2 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-lg transition-colors"><Icon name="trash-2" size={16}/></button>
+                                                <button onClick={() => setDeleteConfirmId(selectedEmployee.id)} className="p-2 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-lg transition-colors"><Icon name="trash-2" size={16}/></button>
                                             </div>
                                             <button onClick={() => setSelectedEmployee(null)} className="lg:hidden text-slate-400 font-bold text-[10px] mb-4 flex items-center gap-1"><Icon name="arrow-left" size={12}/> BACK</button>
                                             <div className="flex flex-col md:flex-row items-center gap-6">
-                                                <div className="w-20 h-20 rounded-2xl bg-blue-600 flex items-center justify-center text-3xl font-black ring-4 ring-white/10 shrink-0">
-                                                    {selectedEmployee.firstName?.[0]}
-                                                </div>
+                                                <div className="w-20 h-20 rounded-2xl bg-blue-600 flex items-center justify-center text-3xl font-black ring-4 ring-white/10 shrink-0">{(selectedEmployee.firstName?.[0] || selectedEmployee.fullName?.[0] || '?').toUpperCase()}</div>
                                                 <div className="text-center md:text-left">
                                                     <div className="text-blue-400 text-[10px] font-black uppercase tracking-widest">{selectedEmployee.empId}</div>
                                                     <h2 className="text-2xl font-bold">{selectedEmployee.fullName}</h2>
                                                     <div className="text-slate-400 text-[10px] font-bold uppercase tracking-widest">{selectedEmployee.designation}</div>
-                                                    <div className={`mt-3 inline-block px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-widest border ${STATUS_CONFIG[selectedEmployee.status].color}`}>
-                                                        {selectedEmployee.status}
-                                                    </div>
+                                                    <div className={`mt-3 inline-block px-2 py-0.5 rounded text-[10px] font-black uppercase border ${STATUS_CONFIG[selectedEmployee.status]?.color || 'bg-slate-100'}`}>{selectedEmployee.status}</div>
                                                 </div>
                                             </div>
                                         </div>
@@ -310,206 +329,131 @@
                                                     <InfoItem label="DOB" value={selectedEmployee.dob} />
                                                     <InfoItem label="Mobile" value={selectedEmployee.number} />
                                                 </div>
-                                                <div className="pt-2">
-                                                    <InfoItem label="Work Email" value={selectedEmployee.primaryCompanyMail} highlight />
+                                                <div className="pt-2 border-t mt-4">
+                                                    <InfoItem label="Primary Work Email" value={selectedEmployee.primaryCompanyMail} highlight />
+                                                    {selectedEmployee.additionalCompanyMails?.map((mail, i) => (
+                                                        <div key={i} className="mt-2 text-xs font-semibold text-slate-600 bg-slate-50 p-2 rounded border border-slate-100 flex items-center gap-2">
+                                                            <Icon name="mail" size={12} className="text-blue-500" /> {mail}
+                                                        </div>
+                                                    ))}
                                                 </div>
-                                                <div>
+                                                <div className="pt-2 border-t">
                                                     <InfoItem label="Personal Email" value={selectedEmployee.email} />
+                                                    {selectedEmployee.additionalEmails?.map((mail, i) => (
+                                                        <div key={i} className="mt-1 text-xs text-slate-500">{mail}</div>
+                                                    ))}
                                                 </div>
-                                                
-                                                {/* Separated Direct Numbers Display */}
-                                                {selectedEmployee.directNumbers && selectedEmployee.directNumbers.length > 0 && (
-                                                    <div className="bg-slate-50 p-3 rounded-lg border border-slate-100">
-                                                        <span className="text-[10px] text-slate-400 block mb-1 uppercase font-bold tracking-wider">Direct Lines</span>
-                                                        <div className="space-y-1">
-                                                            {selectedEmployee.directNumbers.map((num, i) => (
-                                                                <div key={i} className="flex items-center gap-1 text-slate-700 text-xs font-semibold">
-                                                                    <Icon name="phone" size={10} className="text-blue-500" /> {num}
-                                                                </div>
-                                                            ))}
-                                                        </div>
-                                                    </div>
-                                                )}
                                             </div>
-
                                             <div className="space-y-6">
-                                                <h3 className="text-blue-600 font-black text-[10px] uppercase tracking-[0.2em] border-b pb-2">Internal Org Details</h3>
+                                                <h3 className="text-blue-600 font-black text-[10px] uppercase tracking-[0.2em] border-b pb-2">Org Management</h3>
                                                 <div className="grid grid-cols-2 gap-4">
-                                                    <InfoItem label="Lead" value={selectedEmployee.lead} />
-                                                    <InfoItem label="Manager" value={selectedEmployee.manager} />
+                                                    <InfoItem label="Reporting Lead" value={selectedEmployee.lead} />
+                                                    <InfoItem label="Reporting Manager" value={selectedEmployee.manager} />
                                                 </div>
-                                                
-                                                {/* Separated Extensions Display */}
-                                                {selectedEmployee.deskExtensions && selectedEmployee.deskExtensions.length > 0 && (
-                                                    <div className="bg-blue-50/30 p-3 rounded-lg border border-blue-100/50">
-                                                        <span className="text-[10px] text-blue-400 block mb-1 uppercase font-bold tracking-wider">Desk Extensions</span>
-                                                        <div className="flex flex-wrap gap-2">
-                                                            {selectedEmployee.deskExtensions.map((ext, i) => (
-                                                                <div key={i} className="px-2 py-0.5 bg-white rounded border border-blue-100 text-blue-700 text-xs font-bold">
-                                                                    #{ext}
-                                                                </div>
-                                                            ))}
-                                                        </div>
+                                                <div className="bg-slate-50 p-3 rounded-lg border border-slate-100 space-y-3">
+                                                    <div>
+                                                        <span className="text-[10px] text-slate-400 block mb-1 uppercase font-bold tracking-wider">Direct Lines</span>
+                                                        {selectedEmployee.directNumbers?.map((n, i) => <div key={i} className="text-xs font-semibold text-slate-700 flex items-center gap-1"><Icon name="phone" size={10} className="text-blue-500"/> {n}</div>)}
                                                     </div>
-                                                )}
-
-                                                <div className="bg-white p-4 rounded-xl border border-slate-100 space-y-3">
-                                                    <div className="flex items-center gap-2 text-slate-700 font-bold text-[10px] uppercase tracking-widest"><Icon name="laptop" size={14}/> Asset Info</div>
-                                                    <InfoItem label="Model" value={selectedEmployee.systemDetails.model} />
-                                                    <InfoItem label="Processor" value={selectedEmployee.systemDetails.processor} />
-                                                    <InfoItem label="MAC" value={selectedEmployee.systemDetails.macId} />
+                                                    <div>
+                                                        <span className="text-[10px] text-slate-400 block mb-1 uppercase font-bold tracking-wider">Extensions</span>
+                                                        <div className="flex flex-wrap gap-1">{selectedEmployee.deskExtensions?.map((ext, i) => <span key={i} className="px-1.5 py-0.5 bg-white border rounded text-[10px] font-bold text-blue-700">#{ext}</span>)}</div>
+                                                    </div>
                                                 </div>
                                             </div>
                                         </div>
                                     </div>
-                                ) : (
-                                    <div className="h-64 flex flex-col items-center justify-center text-slate-300 border-4 border-dashed rounded-3xl">
-                                        <Icon name="users" size={48} className="mb-2 opacity-20" />
-                                        <p className="text-sm font-bold uppercase tracking-widest">Select an employee profile</p>
-                                    </div>
-                                )}
+                                ) : <div className="h-full min-h-[400px] flex flex-col items-center justify-center text-slate-300 border-4 border-dashed rounded-3xl p-12 text-center"><div className="bg-blue-50 p-6 rounded-full mb-6"><Icon name="users" size={48} className="text-blue-200" /></div><h3 className="text-slate-800 font-bold text-lg mb-2">Central Staff Directory</h3><p className="text-slate-400 text-sm max-w-sm">Select a team member to review their verified identity and assets.</p></div>}
                             </div>
                         </div>
                     </main>
 
-                    {/* Editor Modal */}
                     {isModalOpen && (
                         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm overflow-y-auto">
-                            <div className="bg-white w-full max-w-4xl rounded-2xl shadow-2xl animate-in zoom-in-95 duration-200 my-auto">
+                            <div className="bg-white w-full max-w-4xl rounded-2xl shadow-2xl animate-fade-in my-auto">
                                 <div className="px-6 py-4 bg-slate-900 text-white flex justify-between items-center rounded-t-2xl">
-                                    <h2 className="font-bold uppercase tracking-widest text-sm">{editingEmployee ? 'Edit Profile' : 'Add Employee'}</h2>
-                                    <button onClick={() => setIsModalOpen(false)} className="hover:text-red-400 transition-colors"><Icon name="x" /></button>
+                                    <h2 className="font-bold uppercase tracking-widest text-sm flex items-center gap-2"><Icon name={editingEmployee ? 'edit-3' : 'user-plus'} size={18} />{editingEmployee ? 'Modify Staff Record' : 'Onboard New Staff'}</h2>
+                                    <button onClick={() => setIsModalOpen(false)} className="hover:text-red-400 transition-colors"><Icon name="x" size={20}/></button>
                                 </div>
                                 <form onSubmit={handleSave} className="p-6 max-h-[80vh] overflow-y-auto custom-scrollbar space-y-10">
-                                    
-                                    {/* Personal Section */}
+                                    {/* Personal Identity */}
                                     <section>
                                         <h3 className="text-blue-600 font-black text-[10px] uppercase tracking-[0.2em] border-b pb-2 mb-4">Core Identity</h3>
                                         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                                            <div className="space-y-1">
-                                                <label className="text-[10px] font-black text-slate-400 uppercase">Employee ID</label>
-                                                <input required className="w-full p-2 bg-slate-50 border rounded-lg text-sm outline-none focus:ring-1 ring-blue-500" value={formData.empId} onChange={e => setFormData({...formData, empId: e.target.value})} />
-                                            </div>
-                                            <div className="md:col-span-2 space-y-1">
-                                                <label className="text-[10px] font-black text-slate-400 uppercase">Full Name</label>
-                                                <input required className="w-full p-2 bg-slate-50 border rounded-lg text-sm outline-none focus:ring-1 ring-blue-500" value={formData.fullName} onChange={e => setFormData({...formData, fullName: e.target.value})} />
-                                            </div>
-                                            <div className="space-y-1">
-                                                <label className="text-[10px] font-black text-slate-400 uppercase">Status</label>
-                                                <select className="w-full p-2 bg-slate-50 border rounded-lg text-sm" value={formData.status} onChange={e => setFormData({...formData, status: e.target.value})}>
-                                                    {statuses.filter(s => s !== 'All').map(s => <option key={s} value={s}>{s}</option>)}
-                                                </select>
-                                            </div>
-                                            <div className="space-y-1">
-                                                <label className="text-[10px] font-black text-slate-400 uppercase">Designation</label>
-                                                <input required className="w-full p-2 bg-slate-50 border rounded-lg text-sm" value={formData.designation} onChange={e => setFormData({...formData, designation: e.target.value})} />
-                                            </div>
-                                            <div className="space-y-1">
-                                                <label className="text-[10px] font-black text-slate-400 uppercase">Branch</label>
-                                                <input required className="w-full p-2 bg-slate-50 border rounded-lg text-sm" value={formData.branch} onChange={e => setFormData({...formData, branch: e.target.value})} />
-                                            </div>
-                                            <div className="space-y-1">
-                                                <label className="text-[10px] font-black text-slate-400 uppercase">Team</label>
-                                                <input required className="w-full p-2 bg-slate-50 border rounded-lg text-sm" value={formData.team} onChange={e => setFormData({...formData, team: e.target.value})} />
-                                            </div>
-                                            <div className="space-y-1">
-                                                <label className="text-[10px] font-black text-slate-400 uppercase">Date of Birth</label>
-                                                <input type="date" className="w-full p-2 bg-slate-50 border rounded-lg text-sm" value={formData.dob} onChange={e => setFormData({...formData, dob: e.target.value})} />
-                                            </div>
+                                            <div className="space-y-1"><label className="text-[10px] font-black text-slate-400 uppercase">Employee ID</label><input required className="w-full p-2 bg-slate-50 border rounded-lg text-sm" value={formData.empId} onChange={e => setFormData({...formData, empId: e.target.value})} /></div>
+                                            <div className="md:col-span-2 space-y-1"><label className="text-[10px] font-black text-slate-400 uppercase">Full Name</label><input required className="w-full p-2 bg-slate-50 border rounded-lg text-sm" value={formData.fullName} onChange={e => setFormData({...formData, fullName: e.target.value})} /></div>
+                                            <div className="space-y-1"><label className="text-[10px] font-black text-slate-400 uppercase">Status</label><select className="w-full p-2 bg-slate-50 border rounded-lg text-sm" value={formData.status} onChange={e => setFormData({...formData, status: e.target.value})}>{statuses.filter(s => s !== 'All').map(s => <option key={s} value={s}>{s}</option>)}</select></div>
+                                            <div className="space-y-1"><label className="text-[10px] font-black text-slate-400 uppercase">Designation</label><input required className="w-full p-2 bg-slate-50 border rounded-lg text-sm" value={formData.designation} onChange={e => setFormData({...formData, designation: e.target.value})} /></div>
+                                            <div className="space-y-1"><label className="text-[10px] font-black text-slate-400 uppercase">Branch</label><input required className="w-full p-2 bg-slate-50 border rounded-lg text-sm" value={formData.branch} onChange={e => setFormData({...formData, branch: e.target.value})} /></div>
+                                            <div className="space-y-1"><label className="text-[10px] font-black text-slate-400 uppercase">Team</label><input required className="w-full p-2 bg-slate-50 border rounded-lg text-sm" value={formData.team} onChange={e => setFormData({...formData, team: e.target.value})} /></div>
+                                            <div className="space-y-1"><label className="text-[10px] font-black text-slate-400 uppercase">DOB</label><input type="date" className="w-full p-2 bg-slate-50 border rounded-lg text-sm" value={formData.dob} onChange={e => setFormData({...formData, dob: e.target.value})} /></div>
                                         </div>
                                     </section>
 
-                                    {/* Communication Section */}
+                                    {/* Contact Section - Updated with Additional Company Mails */}
                                     <section className="bg-slate-50/50 -mx-6 p-6 border-y border-slate-100">
                                         <div className="flex justify-between items-center mb-6">
-                                            <h3 className="text-blue-600 font-black text-[10px] uppercase tracking-[0.2em]">External Contact Lines</h3>
-                                            <button type="button" onClick={() => addDynamicField('directNumbers')} className="text-[10px] font-black uppercase text-blue-600 bg-white border px-3 py-1 rounded shadow-sm hover:bg-blue-50 flex items-center gap-1 transition-all"><Icon name="plus" size={12}/> Add Direct No.</button>
+                                            <h3 className="text-blue-600 font-black text-[10px] uppercase tracking-[0.2em]">Contact Channels</h3>
+                                            <div className="flex gap-2">
+                                                <button type="button" onClick={() => addDynamicField('additionalCompanyMails')} className="text-[9px] font-black uppercase text-blue-600 bg-white border px-2 py-1 rounded shadow-sm hover:bg-blue-50 flex items-center gap-1 transition-all"><Icon name="plus" size={10}/> Add Company Mail</button>
+                                                <button type="button" onClick={() => addDynamicField('directNumbers')} className="text-[9px] font-black uppercase text-blue-600 bg-white border px-2 py-1 rounded shadow-sm hover:bg-blue-50 flex items-center gap-1 transition-all"><Icon name="plus" size={10}/> Add Direct Line</button>
+                                            </div>
                                         </div>
                                         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                                            <div className="space-y-1">
-                                                <label className="text-[10px] font-black text-slate-400 uppercase">Personal Mobile</label>
-                                                <input className="w-full p-2 bg-white border rounded-lg text-sm" value={formData.number} onChange={e => setFormData({...formData, number: e.target.value})} />
-                                            </div>
-                                            <div className="space-y-1">
-                                                <label className="text-[10px] font-black text-slate-400 uppercase">Personal Email</label>
-                                                <input required type="email" className="w-full p-2 bg-white border rounded-lg text-sm" value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} />
-                                            </div>
-                                            <div className="space-y-1">
-                                                <label className="text-[10px] font-black text-slate-400 uppercase">Company Work Email</label>
-                                                <input required type="email" className="w-full p-2 bg-white border rounded-lg text-sm" value={formData.primaryCompanyMail} onChange={e => setFormData({...formData, primaryCompanyMail: e.target.value})} />
-                                            </div>
-
-                                            {formData.directNumbers.map((num, idx) => (
-                                                <div key={idx} className="space-y-1 animate-in slide-in-from-left-2">
-                                                    <label className="text-[10px] font-black text-slate-400 uppercase flex justify-between">
-                                                        <span>Direct External Line {idx + 1}</span>
-                                                        <button type="button" onClick={() => removeDynamicField('directNumbers', idx)} className="text-red-500 text-[8px] hover:underline">Remove</button>
+                                            <div className="space-y-1"><label className="text-[10px] font-black text-slate-400 uppercase">Mobile Number</label><input className="w-full p-2 bg-white border rounded-lg text-sm" value={formData.number} onChange={e => setFormData({...formData, number: e.target.value})} /></div>
+                                            <div className="space-y-1"><label className="text-[10px] font-black text-slate-400 uppercase">Personal Email</label><input required type="email" className="w-full p-2 bg-white border rounded-lg text-sm" value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} /></div>
+                                            <div className="space-y-1"><label className="text-[10px] font-black text-slate-400 uppercase">Corporate Email</label><input required type="email" className="w-full p-2 bg-white border rounded-lg text-sm" value={formData.primaryCompanyMail} onChange={e => setFormData({...formData, primaryCompanyMail: e.target.value})} /></div>
+                                            
+                                            {/* Additional Company Mails Dynamic Fields */}
+                                            {formData.additionalCompanyMails.map((mail, idx) => (
+                                                <div key={idx} className="space-y-1 animate-fade-in md:col-span-1">
+                                                    <label className="text-[10px] font-black text-blue-400 uppercase flex justify-between">
+                                                        <span>Extra Company Mail {idx + 1}</span>
+                                                        <button type="button" onClick={() => removeDynamicField('additionalCompanyMails', idx)} className="text-red-500 text-[8px] hover:underline uppercase">Remove</button>
                                                     </label>
-                                                    <input className="w-full p-2 bg-white border border-blue-100 rounded-lg text-sm" value={num} onChange={e => updateDynamicField('directNumbers', idx, e.target.value)} placeholder="e.g. +91 80..." />
+                                                    <input type="email" className="w-full p-2 bg-blue-50/20 border border-blue-100 rounded-lg text-sm" value={mail} onChange={e => updateDynamicField('additionalCompanyMails', idx, e.target.value)} />
+                                                </div>
+                                            ))}
+
+                                            {/* Direct Lines Dynamic Fields */}
+                                            {formData.directNumbers.map((num, idx) => (
+                                                <div key={idx} className="space-y-1 animate-fade-in md:col-span-1">
+                                                    <label className="text-[10px] font-black text-slate-400 uppercase flex justify-between">
+                                                        <span>Direct line {idx + 1}</span>
+                                                        <button type="button" onClick={() => removeDynamicField('directNumbers', idx)} className="text-red-500 text-[8px] hover:underline uppercase">Remove</button>
+                                                    </label>
+                                                    <input className="w-full p-2 bg-white border rounded-lg text-sm" value={num} onChange={e => updateDynamicField('directNumbers', idx, e.target.value)} />
                                                 </div>
                                             ))}
                                         </div>
                                     </section>
 
-                                    {/* Company Extensions Section */}
                                     <section>
                                         <div className="flex justify-between items-center border-b pb-2 mb-4">
-                                            <h3 className="text-blue-600 font-black text-[10px] uppercase tracking-[0.2em]">Hierarchy & Extensions</h3>
+                                            <h3 className="text-blue-600 font-black text-[10px] uppercase tracking-[0.2em]">Internal & Assets</h3>
                                             <button type="button" onClick={() => addDynamicField('deskExtensions')} className="text-[10px] font-black uppercase text-blue-600 hover:text-blue-800 flex items-center gap-1 transition-all"><Icon name="plus" size={12}/> Add Extension</button>
                                         </div>
                                         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                                            <div className="space-y-1">
-                                                <label className="text-[10px] font-black text-slate-400 uppercase">Lead Name</label>
-                                                <input required className="w-full p-2 bg-slate-50 border rounded-lg text-sm" value={formData.lead} onChange={e => setFormData({...formData, lead: e.target.value})} />
-                                            </div>
-                                            <div className="space-y-1">
-                                                <label className="text-[10px] font-black text-slate-400 uppercase">Manager Name</label>
-                                                <input required className="w-full p-2 bg-slate-50 border rounded-lg text-sm" value={formData.manager} onChange={e => setFormData({...formData, manager: e.target.value})} />
-                                            </div>
-
+                                            <div className="space-y-1"><label className="text-[10px] font-black text-slate-400 uppercase">Lead</label><input required className="w-full p-2 bg-slate-50 border rounded-lg text-sm" value={formData.lead} onChange={e => setFormData({...formData, lead: e.target.value})} /></div>
+                                            <div className="space-y-1"><label className="text-[10px] font-black text-slate-400 uppercase">Manager</label><input required className="w-full p-2 bg-slate-50 border rounded-lg text-sm" value={formData.manager} onChange={e => setFormData({...formData, manager: e.target.value})} /></div>
                                             {formData.deskExtensions.map((ext, idx) => (
-                                                <div key={idx} className="space-y-1 animate-in slide-in-from-left-2">
-                                                    <label className="text-[10px] font-black text-slate-400 uppercase flex justify-between">
-                                                        <span>Extension {idx + 1}</span>
-                                                        <button type="button" onClick={() => removeDynamicField('deskExtensions', idx)} className="text-red-500 text-[8px] hover:underline">Remove</button>
-                                                    </label>
-                                                    <input className="w-full p-2 bg-blue-50/50 border border-blue-100 rounded-lg text-sm font-bold text-blue-700" value={ext} onChange={e => updateDynamicField('deskExtensions', idx, e.target.value)} placeholder="e.g. 501" />
-                                                </div>
+                                                <div key={idx} className="space-y-1"><label className="text-[10px] font-black text-slate-400 uppercase flex justify-between"><span>Ext {idx + 1}</span><button type="button" onClick={() => removeDynamicField('deskExtensions', idx)} className="text-red-500 text-[8px]">Remove</button></label><input className="w-full p-2 bg-blue-50 border border-blue-100 rounded-lg text-sm font-bold text-blue-700" value={ext} onChange={e => updateDynamicField('deskExtensions', idx, e.target.value)} /></div>
                                             ))}
                                         </div>
                                     </section>
 
-                                    {/* Assets Section */}
-                                    <section className="bg-slate-900 -mx-6 -mb-6 p-6 rounded-b-2xl">
-                                        <h3 className="text-blue-400 font-black text-[10px] uppercase tracking-[0.2em] border-b border-white/10 pb-2 mb-4">Asset Allocation</h3>
-                                        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                                            <div className="space-y-1">
-                                                <label className="text-[10px] font-black text-slate-500 uppercase">Type</label>
-                                                <select className="w-full p-2 bg-white/5 border border-white/10 rounded-lg text-sm text-white" value={formData.itAsset} onChange={e => setFormData({...formData, itAsset: e.target.value})}>
-                                                    <option className="text-black">Laptop</option>
-                                                    <option className="text-black">Desktop</option>
-                                                </select>
-                                            </div>
-                                            <div className="space-y-1">
-                                                <label className="text-[10px] font-black text-slate-500 uppercase">Hardware Model</label>
-                                                <input className="w-full p-2 bg-white/5 border border-white/10 rounded-lg text-sm text-white" value={formData.model} onChange={e => setFormData({...formData, model: e.target.value})} />
-                                            </div>
-                                            <div className="space-y-1">
-                                                <label className="text-[10px] font-black text-slate-500 uppercase">Processor</label>
-                                                <input className="w-full p-2 bg-white/5 border border-white/10 rounded-lg text-sm text-white" value={formData.processor} onChange={e => setFormData({...formData, processor: e.target.value})} />
-                                            </div>
-                                            <div className="space-y-1">
-                                                <label className="text-[10px] font-black text-slate-500 uppercase">MAC ID</label>
-                                                <input className="w-full p-2 bg-white/5 border border-white/10 rounded-lg text-sm text-white" value={formData.macId} onChange={e => setFormData({...formData, macId: e.target.value})} />
-                                            </div>
-                                        </div>
-                                        <div className="flex justify-end gap-3 mt-8 pt-6 border-t border-white/10">
-                                            <button type="button" onClick={() => setIsModalOpen(false)} className="px-4 py-2 text-slate-400 text-xs font-bold uppercase hover:text-white transition-colors">Cancel</button>
-                                            <button type="submit" className="px-8 py-2 bg-blue-600 text-white rounded-lg text-xs font-black uppercase shadow-lg shadow-blue-500/20 hover:bg-blue-500 transition-all">Submit Profile</button>
-                                        </div>
-                                    </section>
+                                    <div className="flex justify-end gap-3 pt-6 border-t">
+                                        <button type="button" onClick={() => setIsModalOpen(false)} className="px-4 py-2 bg-slate-100 rounded-lg text-xs font-bold uppercase">Cancel</button>
+                                        <button type="submit" className="px-8 py-2 bg-blue-600 text-white rounded-lg text-xs font-black uppercase shadow-lg shadow-blue-500/20 hover:bg-blue-500 transition-all">Submit Profile</button>
+                                    </div>
                                 </form>
                             </div>
+                        </div>
+                    )}
+
+                    {deleteConfirmId && (
+                        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-sm">
+                            <div className="bg-white rounded-2xl p-6 max-w-sm w-full animate-fade-in"><div className="bg-red-50 w-12 h-12 rounded-full flex items-center justify-center mb-4"><Icon name="trash-2" className="text-red-600" size={24} /></div><h3 className="text-lg font-bold text-slate-900 leading-none">Purge Staff Record?</h3><p className="text-slate-500 text-sm mt-3 leading-tight">Permanently delete from cloud.</p><div className="flex gap-3 mt-8"><button onClick={() => setDeleteConfirmId(null)} className="flex-1 px-4 py-2 bg-slate-100 rounded-lg text-xs font-bold uppercase text-slate-600">Cancel</button><button onClick={handleDelete} className="flex-1 px-4 py-2 bg-red-600 rounded-lg text-xs font-bold uppercase text-white">Confirm</button></div></div>
                         </div>
                     )}
                 </div>
