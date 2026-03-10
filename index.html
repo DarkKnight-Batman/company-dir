@@ -37,10 +37,7 @@
 
             useEffect(() => {
                 if (window.lucide && containerRef.current) {
-                    // Inject the placeholder element that Lucide looks for
                     containerRef.current.innerHTML = `<i data-lucide="${name}"></i>`;
-                    
-                    // Run Lucide specifically on this container
                     window.lucide.createIcons({
                         root: containerRef.current,
                         attrs: {
@@ -52,8 +49,6 @@
                 }
             }, [name, size, className]);
 
-            // We return a stable wrapper that React manages. 
-            // React won't touch the children because it thinks there are none.
             return <span ref={containerRef} className="inline-flex items-center justify-center leading-none"></span>;
         };
 
@@ -80,6 +75,7 @@
             const [employees, setEmployees] = useState([
                 {
                     id: '1',
+                    empId: 'CORP-101',
                     status: 'Active',
                     branch: 'Bangalore',
                     team: 'Engineering',
@@ -90,8 +86,8 @@
                     preferredName: 'Arj',
                     dob: '1992-05-15',
                     number: '9876543210',
-                    email: 'arjun.s@company.com',
-                    additionalEmails: ['arjun.personal@gmail.com'],
+                    email: 'arjun.personal@gmail.com',
+                    additionalEmails: ['arjun.alt@outlook.com'],
                     primaryCompanyMail: 'arjun.sharma@hq.company.com',
                     aadhar: '1234-5678-9012',
                     pan: 'ABCDE1234F',
@@ -104,7 +100,8 @@
                         model: 'MacBook Pro 14"',
                         cpuType: 'ARM'
                     },
-                    deskPhones: 2
+                    deskExtensions: ['Ext 402'],
+                    directNumbers: ['+91 80 4455 6677']
                 }
             ]);
 
@@ -117,11 +114,11 @@
             const [editingEmployee, setEditingEmployee] = useState(null);
 
             const initialFormState = {
-                status: 'Active', branch: '', team: '', designation: '', fullName: '', 
+                empId: '', status: 'Active', branch: '', team: '', designation: '', fullName: '', 
                 firstName: '', lastName: '', preferredName: '', dob: '', number: '', 
-                email: '', additionalEmails: '', primaryCompanyMail: '', aadhar: '', 
+                email: '', additionalEmails: [], primaryCompanyMail: '', aadhar: '', 
                 pan: '', lead: '', manager: '', itAsset: 'Laptop', processor: '', 
-                macId: '', model: '', cpuType: 'x86_64', deskPhones: 0
+                macId: '', model: '', cpuType: 'x86_64', deskExtensions: [], directNumbers: []
             };
             const [formData, setFormData] = useState(initialFormState);
 
@@ -132,7 +129,10 @@
             const filteredEmployees = useMemo(() => {
                 return employees.filter(emp => {
                     const s = searchTerm.toLowerCase();
-                    return (emp.fullName.toLowerCase().includes(s) || emp.email.toLowerCase().includes(s) || emp.designation.toLowerCase().includes(s)) &&
+                    return (emp.fullName.toLowerCase().includes(s) || 
+                            emp.email.toLowerCase().includes(s) || 
+                            emp.designation.toLowerCase().includes(s) ||
+                            emp.empId.toLowerCase().includes(s)) &&
                            (selectedBranch === 'All' || emp.branch === selectedBranch) &&
                            (selectedTeam === 'All' || emp.team === selectedTeam) &&
                            (selectedStatus === 'All' || emp.status === selectedStatus);
@@ -144,7 +144,9 @@
                     setEditingEmployee(emp);
                     setFormData({
                         ...emp,
-                        additionalEmails: emp.additionalEmails.join(', '),
+                        additionalEmails: [...(emp.additionalEmails || [])],
+                        deskExtensions: [...(emp.deskExtensions || [])],
+                        directNumbers: [...(emp.directNumbers || [])],
                         processor: emp.systemDetails.processor,
                         macId: emp.systemDetails.macId,
                         model: emp.systemDetails.model,
@@ -162,7 +164,9 @@
                 const preparedData = {
                     ...formData,
                     id: editingEmployee ? editingEmployee.id : Date.now().toString(),
-                    additionalEmails: formData.additionalEmails.split(',').map(s => s.trim()).filter(Boolean),
+                    additionalEmails: formData.additionalEmails.map(s => s.trim()).filter(Boolean),
+                    deskExtensions: formData.deskExtensions.map(s => s.trim()).filter(Boolean),
+                    directNumbers: formData.directNumbers.map(s => s.trim()).filter(Boolean),
                     systemDetails: {
                         processor: formData.processor,
                         macId: formData.macId,
@@ -180,6 +184,22 @@
                 setIsModalOpen(false);
             };
 
+            const addDynamicField = (field) => {
+                setFormData({ ...formData, [field]: [...formData[field], ''] });
+            };
+
+            const removeDynamicField = (field, index) => {
+                const newList = [...formData[field]];
+                newList.splice(index, 1);
+                setFormData({ ...formData, [field]: newList });
+            };
+
+            const updateDynamicField = (field, index, value) => {
+                const newList = [...formData[field]];
+                newList[index] = value;
+                setFormData({ ...formData, [field]: newList });
+            };
+
             const handleDelete = (id) => {
                 if (confirm("Delete this record permanently?")) {
                     setEmployees(employees.filter(e => e.id !== id));
@@ -188,12 +208,15 @@
             };
 
             const exportToCSV = () => {
-                const headers = ["Status", "Branch", "Team", "Designation", "Full Name", "Email", "Asset Model"];
-                const rows = employees.map(e => [e.status, e.branch, e.team, e.designation, e.fullName, e.email, e.systemDetails.model]);
+                const headers = ["Emp ID", "Status", "Branch", "Team", "Designation", "Full Name", "Personal Email", "Work Email", "Extensions", "Direct Lines", "Lead", "Manager"];
+                const rows = employees.map(e => [
+                    e.empId, e.status, e.branch, e.team, e.designation, e.fullName, 
+                    e.email, e.primaryCompanyMail, e.deskExtensions.join('; '), e.directNumbers.join('; '), e.lead, e.manager
+                ]);
                 const csvContent = [headers, ...rows].map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n");
                 const link = document.createElement("a");
                 link.href = URL.createObjectURL(new Blob([csvContent], { type: 'text/csv;charset=utf-8;' }));
-                link.download = `corp_directory.csv`;
+                link.download = `corp_directory_export.csv`;
                 link.click();
             };
 
@@ -206,7 +229,7 @@
                                 <h1 className="text-xl font-extrabold tracking-tight text-slate-800">CorpDir <span className="text-blue-600">Pro</span></h1>
                             </div>
                             <div className="flex gap-2">
-                                <button onClick={() => handleOpenModal()} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-bold text-sm transition-all active:scale-95"><Icon name="plus" size={16}/> Add</button>
+                                <button onClick={() => handleOpenModal()} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-bold text-sm transition-all active:scale-95"><Icon name="plus" size={16}/> Add Employee</button>
                                 <button onClick={exportToCSV} className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg font-bold text-sm transition-all"><Icon name="download" size={16}/> Export</button>
                             </div>
                         </div>
@@ -216,7 +239,7 @@
                         <div className="bg-white rounded-xl shadow-sm border p-4 mb-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
                             <div className="relative lg:col-span-1">
                                 <Icon name="search" size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                                <input type="text" placeholder="Search..." className="w-full pl-10 pr-4 py-2 bg-slate-50 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+                                <input type="text" placeholder="Search ID, name..." className="w-full pl-10 pr-4 py-2 bg-slate-50 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
                             </div>
                             <select className="p-2 bg-slate-50 border rounded-lg text-sm outline-none" value={selectedBranch} onChange={e => setSelectedBranch(e.target.value)}>
                                 {branches.map(b => <option key={b} value={b}>{b === 'All' ? 'All Branches' : b}</option>)}
@@ -228,7 +251,7 @@
                                 {statuses.map(s => <option key={s} value={s}>{s === 'All' ? 'All Status' : s}</option>)}
                             </select>
                             <div className="flex items-center justify-end font-black text-blue-600 text-[10px] uppercase tracking-tighter">
-                                {filteredEmployees.length} RECORDS FOUND
+                                {filteredEmployees.length} RECORDS
                             </div>
                         </div>
 
@@ -244,9 +267,9 @@
                                                 <div className={`absolute -bottom-1 -right-1 w-3 h-3 rounded-full border-2 ${selectedEmployee?.id === emp.id ? 'border-blue-600' : 'border-white'} ${STATUS_CONFIG[emp.status].color.split(' ')[0]}`}></div>
                                             </div>
                                             <div className="overflow-hidden">
-                                                <div className="font-bold truncate text-sm">{emp.fullName}</div>
+                                                <div className="font-bold truncate text-sm leading-tight">{emp.fullName}</div>
                                                 <div className={`text-[10px] font-black uppercase truncate tracking-tighter ${selectedEmployee?.id === emp.id ? 'text-blue-100' : 'text-blue-600'}`}>
-                                                    {emp.designation}
+                                                    {emp.empId} • {emp.designation}
                                                 </div>
                                             </div>
                                         </div>
@@ -260,8 +283,8 @@
                                     <div className="bg-white rounded-2xl shadow-xl border overflow-hidden">
                                         <div className="bg-slate-900 p-6 md:p-8 text-white relative">
                                             <div className="absolute top-4 right-4 flex gap-2">
-                                                <button onClick={() => handleOpenModal(selectedEmployee)} className="p-2 bg-white/10 hover:bg-white/20 rounded-lg"><Icon name="edit-2" size={16}/></button>
-                                                <button onClick={() => handleDelete(selectedEmployee.id)} className="p-2 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-lg"><Icon name="trash-2" size={16}/></button>
+                                                <button onClick={() => handleOpenModal(selectedEmployee)} className="p-2 bg-white/10 hover:bg-white/20 rounded-lg transition-colors"><Icon name="edit-2" size={16}/></button>
+                                                <button onClick={() => handleDelete(selectedEmployee.id)} className="p-2 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-lg transition-colors"><Icon name="trash-2" size={16}/></button>
                                             </div>
                                             <button onClick={() => setSelectedEmployee(null)} className="lg:hidden text-slate-400 font-bold text-[10px] mb-4 flex items-center gap-1"><Icon name="arrow-left" size={12}/> BACK</button>
                                             <div className="flex flex-col md:flex-row items-center gap-6">
@@ -269,8 +292,9 @@
                                                     {selectedEmployee.firstName?.[0]}
                                                 </div>
                                                 <div className="text-center md:text-left">
+                                                    <div className="text-blue-400 text-[10px] font-black uppercase tracking-widest">{selectedEmployee.empId}</div>
                                                     <h2 className="text-2xl font-bold">{selectedEmployee.fullName}</h2>
-                                                    <div className="text-blue-400 text-[10px] font-black uppercase tracking-widest mt-1">{selectedEmployee.designation}</div>
+                                                    <div className="text-slate-400 text-[10px] font-bold uppercase tracking-widest">{selectedEmployee.designation}</div>
                                                     <div className={`mt-3 inline-block px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-widest border ${STATUS_CONFIG[selectedEmployee.status].color}`}>
                                                         {selectedEmployee.status}
                                                     </div>
@@ -279,21 +303,61 @@
                                         </div>
                                         <div className="p-6 md:p-8 grid grid-cols-1 md:grid-cols-2 gap-8">
                                             <div className="space-y-6">
-                                                <h3 className="text-blue-600 font-black text-[10px] uppercase tracking-[0.2em] border-b pb-2">Identity Details</h3>
+                                                <h3 className="text-blue-600 font-black text-[10px] uppercase tracking-[0.2em] border-b pb-2">Identity & Contact</h3>
                                                 <div className="grid grid-cols-2 gap-4">
                                                     <InfoItem label="Aadhar" value={selectedEmployee.aadhar} />
                                                     <InfoItem label="PAN" value={selectedEmployee.pan} />
                                                     <InfoItem label="DOB" value={selectedEmployee.dob} />
                                                     <InfoItem label="Mobile" value={selectedEmployee.number} />
                                                 </div>
-                                                <InfoItem label="Company Mail" value={selectedEmployee.primaryCompanyMail} highlight />
+                                                <div className="pt-2">
+                                                    <InfoItem label="Work Email" value={selectedEmployee.primaryCompanyMail} highlight />
+                                                </div>
+                                                <div>
+                                                    <InfoItem label="Personal Email" value={selectedEmployee.email} />
+                                                </div>
+                                                
+                                                {/* Separated Direct Numbers Display */}
+                                                {selectedEmployee.directNumbers && selectedEmployee.directNumbers.length > 0 && (
+                                                    <div className="bg-slate-50 p-3 rounded-lg border border-slate-100">
+                                                        <span className="text-[10px] text-slate-400 block mb-1 uppercase font-bold tracking-wider">Direct Lines</span>
+                                                        <div className="space-y-1">
+                                                            {selectedEmployee.directNumbers.map((num, i) => (
+                                                                <div key={i} className="flex items-center gap-1 text-slate-700 text-xs font-semibold">
+                                                                    <Icon name="phone" size={10} className="text-blue-500" /> {num}
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    </div>
+                                                )}
                                             </div>
+
                                             <div className="space-y-6">
-                                                <h3 className="text-blue-600 font-black text-[10px] uppercase tracking-[0.2em] border-b pb-2">IT Hardware</h3>
-                                                <div className="bg-slate-50 p-4 rounded-xl space-y-3">
-                                                    <InfoItem label="Asset Model" value={selectedEmployee.systemDetails.model} />
+                                                <h3 className="text-blue-600 font-black text-[10px] uppercase tracking-[0.2em] border-b pb-2">Internal Org Details</h3>
+                                                <div className="grid grid-cols-2 gap-4">
+                                                    <InfoItem label="Lead" value={selectedEmployee.lead} />
+                                                    <InfoItem label="Manager" value={selectedEmployee.manager} />
+                                                </div>
+                                                
+                                                {/* Separated Extensions Display */}
+                                                {selectedEmployee.deskExtensions && selectedEmployee.deskExtensions.length > 0 && (
+                                                    <div className="bg-blue-50/30 p-3 rounded-lg border border-blue-100/50">
+                                                        <span className="text-[10px] text-blue-400 block mb-1 uppercase font-bold tracking-wider">Desk Extensions</span>
+                                                        <div className="flex flex-wrap gap-2">
+                                                            {selectedEmployee.deskExtensions.map((ext, i) => (
+                                                                <div key={i} className="px-2 py-0.5 bg-white rounded border border-blue-100 text-blue-700 text-xs font-bold">
+                                                                    #{ext}
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    </div>
+                                                )}
+
+                                                <div className="bg-white p-4 rounded-xl border border-slate-100 space-y-3">
+                                                    <div className="flex items-center gap-2 text-slate-700 font-bold text-[10px] uppercase tracking-widest"><Icon name="laptop" size={14}/> Asset Info</div>
+                                                    <InfoItem label="Model" value={selectedEmployee.systemDetails.model} />
                                                     <InfoItem label="Processor" value={selectedEmployee.systemDetails.processor} />
-                                                    <InfoItem label="MAC Identifier" value={selectedEmployee.systemDetails.macId} />
+                                                    <InfoItem label="MAC" value={selectedEmployee.systemDetails.macId} />
                                                 </div>
                                             </div>
                                         </div>
@@ -301,69 +365,149 @@
                                 ) : (
                                     <div className="h-64 flex flex-col items-center justify-center text-slate-300 border-4 border-dashed rounded-3xl">
                                         <Icon name="users" size={48} className="mb-2 opacity-20" />
-                                        <p className="text-sm font-bold uppercase tracking-widest">Select an identity profile</p>
+                                        <p className="text-sm font-bold uppercase tracking-widest">Select an employee profile</p>
                                     </div>
                                 )}
                             </div>
                         </div>
                     </main>
 
+                    {/* Editor Modal */}
                     {isModalOpen && (
                         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm overflow-y-auto">
-                            <div className="bg-white w-full max-w-2xl rounded-2xl shadow-2xl animate-in zoom-in-95 duration-200 my-auto">
+                            <div className="bg-white w-full max-w-4xl rounded-2xl shadow-2xl animate-in zoom-in-95 duration-200 my-auto">
                                 <div className="px-6 py-4 bg-slate-900 text-white flex justify-between items-center rounded-t-2xl">
-                                    <h2 className="font-bold uppercase tracking-widest text-sm">{editingEmployee ? 'Update Profile' : 'New Employee'}</h2>
-                                    <button onClick={() => setIsModalOpen(false)}><Icon name="x" /></button>
+                                    <h2 className="font-bold uppercase tracking-widest text-sm">{editingEmployee ? 'Edit Profile' : 'Add Employee'}</h2>
+                                    <button onClick={() => setIsModalOpen(false)} className="hover:text-red-400 transition-colors"><Icon name="x" /></button>
                                 </div>
-                                <form onSubmit={handleSave} className="p-6 max-h-[80vh] overflow-y-auto custom-scrollbar space-y-6">
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                        <div className="space-y-1">
-                                            <label className="text-[10px] font-black text-slate-400 uppercase">Full Name</label>
-                                            <input required className="w-full p-2 bg-slate-50 border rounded-lg text-sm" value={formData.fullName} onChange={e => setFormData({...formData, fullName: e.target.value})} />
+                                <form onSubmit={handleSave} className="p-6 max-h-[80vh] overflow-y-auto custom-scrollbar space-y-10">
+                                    
+                                    {/* Personal Section */}
+                                    <section>
+                                        <h3 className="text-blue-600 font-black text-[10px] uppercase tracking-[0.2em] border-b pb-2 mb-4">Core Identity</h3>
+                                        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                                            <div className="space-y-1">
+                                                <label className="text-[10px] font-black text-slate-400 uppercase">Employee ID</label>
+                                                <input required className="w-full p-2 bg-slate-50 border rounded-lg text-sm outline-none focus:ring-1 ring-blue-500" value={formData.empId} onChange={e => setFormData({...formData, empId: e.target.value})} />
+                                            </div>
+                                            <div className="md:col-span-2 space-y-1">
+                                                <label className="text-[10px] font-black text-slate-400 uppercase">Full Name</label>
+                                                <input required className="w-full p-2 bg-slate-50 border rounded-lg text-sm outline-none focus:ring-1 ring-blue-500" value={formData.fullName} onChange={e => setFormData({...formData, fullName: e.target.value})} />
+                                            </div>
+                                            <div className="space-y-1">
+                                                <label className="text-[10px] font-black text-slate-400 uppercase">Status</label>
+                                                <select className="w-full p-2 bg-slate-50 border rounded-lg text-sm" value={formData.status} onChange={e => setFormData({...formData, status: e.target.value})}>
+                                                    {statuses.filter(s => s !== 'All').map(s => <option key={s} value={s}>{s}</option>)}
+                                                </select>
+                                            </div>
+                                            <div className="space-y-1">
+                                                <label className="text-[10px] font-black text-slate-400 uppercase">Designation</label>
+                                                <input required className="w-full p-2 bg-slate-50 border rounded-lg text-sm" value={formData.designation} onChange={e => setFormData({...formData, designation: e.target.value})} />
+                                            </div>
+                                            <div className="space-y-1">
+                                                <label className="text-[10px] font-black text-slate-400 uppercase">Branch</label>
+                                                <input required className="w-full p-2 bg-slate-50 border rounded-lg text-sm" value={formData.branch} onChange={e => setFormData({...formData, branch: e.target.value})} />
+                                            </div>
+                                            <div className="space-y-1">
+                                                <label className="text-[10px] font-black text-slate-400 uppercase">Team</label>
+                                                <input required className="w-full p-2 bg-slate-50 border rounded-lg text-sm" value={formData.team} onChange={e => setFormData({...formData, team: e.target.value})} />
+                                            </div>
+                                            <div className="space-y-1">
+                                                <label className="text-[10px] font-black text-slate-400 uppercase">Date of Birth</label>
+                                                <input type="date" className="w-full p-2 bg-slate-50 border rounded-lg text-sm" value={formData.dob} onChange={e => setFormData({...formData, dob: e.target.value})} />
+                                            </div>
                                         </div>
-                                        <div className="space-y-1">
-                                            <label className="text-[10px] font-black text-slate-400 uppercase">Designation</label>
-                                            <input required className="w-full p-2 bg-slate-50 border rounded-lg text-sm" value={formData.designation} onChange={e => setFormData({...formData, designation: e.target.value})} />
+                                    </section>
+
+                                    {/* Communication Section */}
+                                    <section className="bg-slate-50/50 -mx-6 p-6 border-y border-slate-100">
+                                        <div className="flex justify-between items-center mb-6">
+                                            <h3 className="text-blue-600 font-black text-[10px] uppercase tracking-[0.2em]">External Contact Lines</h3>
+                                            <button type="button" onClick={() => addDynamicField('directNumbers')} className="text-[10px] font-black uppercase text-blue-600 bg-white border px-3 py-1 rounded shadow-sm hover:bg-blue-50 flex items-center gap-1 transition-all"><Icon name="plus" size={12}/> Add Direct No.</button>
                                         </div>
-                                        <div className="space-y-1">
-                                            <label className="text-[10px] font-black text-slate-400 uppercase">Status</label>
-                                            <select className="w-full p-2 bg-slate-50 border rounded-lg text-sm" value={formData.status} onChange={e => setFormData({...formData, status: e.target.value})}>
-                                                {statuses.filter(s => s !== 'All').map(s => <option key={s} value={s}>{s}</option>)}
-                                            </select>
+                                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                                            <div className="space-y-1">
+                                                <label className="text-[10px] font-black text-slate-400 uppercase">Personal Mobile</label>
+                                                <input className="w-full p-2 bg-white border rounded-lg text-sm" value={formData.number} onChange={e => setFormData({...formData, number: e.target.value})} />
+                                            </div>
+                                            <div className="space-y-1">
+                                                <label className="text-[10px] font-black text-slate-400 uppercase">Personal Email</label>
+                                                <input required type="email" className="w-full p-2 bg-white border rounded-lg text-sm" value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} />
+                                            </div>
+                                            <div className="space-y-1">
+                                                <label className="text-[10px] font-black text-slate-400 uppercase">Company Work Email</label>
+                                                <input required type="email" className="w-full p-2 bg-white border rounded-lg text-sm" value={formData.primaryCompanyMail} onChange={e => setFormData({...formData, primaryCompanyMail: e.target.value})} />
+                                            </div>
+
+                                            {formData.directNumbers.map((num, idx) => (
+                                                <div key={idx} className="space-y-1 animate-in slide-in-from-left-2">
+                                                    <label className="text-[10px] font-black text-slate-400 uppercase flex justify-between">
+                                                        <span>Direct External Line {idx + 1}</span>
+                                                        <button type="button" onClick={() => removeDynamicField('directNumbers', idx)} className="text-red-500 text-[8px] hover:underline">Remove</button>
+                                                    </label>
+                                                    <input className="w-full p-2 bg-white border border-blue-100 rounded-lg text-sm" value={num} onChange={e => updateDynamicField('directNumbers', idx, e.target.value)} placeholder="e.g. +91 80..." />
+                                                </div>
+                                            ))}
                                         </div>
-                                        <div className="space-y-1">
-                                            <label className="text-[10px] font-black text-slate-400 uppercase">Primary Email</label>
-                                            <input required type="email" className="w-full p-2 bg-slate-50 border rounded-lg text-sm" value={formData.primaryCompanyMail} onChange={e => setFormData({...formData, primaryCompanyMail: e.target.value})} />
+                                    </section>
+
+                                    {/* Company Extensions Section */}
+                                    <section>
+                                        <div className="flex justify-between items-center border-b pb-2 mb-4">
+                                            <h3 className="text-blue-600 font-black text-[10px] uppercase tracking-[0.2em]">Hierarchy & Extensions</h3>
+                                            <button type="button" onClick={() => addDynamicField('deskExtensions')} className="text-[10px] font-black uppercase text-blue-600 hover:text-blue-800 flex items-center gap-1 transition-all"><Icon name="plus" size={12}/> Add Extension</button>
                                         </div>
-                                        <div className="space-y-1">
-                                            <label className="text-[10px] font-black text-slate-400 uppercase">Branch</label>
-                                            <input required className="w-full p-2 bg-slate-50 border rounded-lg text-sm" value={formData.branch} onChange={e => setFormData({...formData, branch: e.target.value})} />
+                                        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                                            <div className="space-y-1">
+                                                <label className="text-[10px] font-black text-slate-400 uppercase">Lead Name</label>
+                                                <input required className="w-full p-2 bg-slate-50 border rounded-lg text-sm" value={formData.lead} onChange={e => setFormData({...formData, lead: e.target.value})} />
+                                            </div>
+                                            <div className="space-y-1">
+                                                <label className="text-[10px] font-black text-slate-400 uppercase">Manager Name</label>
+                                                <input required className="w-full p-2 bg-slate-50 border rounded-lg text-sm" value={formData.manager} onChange={e => setFormData({...formData, manager: e.target.value})} />
+                                            </div>
+
+                                            {formData.deskExtensions.map((ext, idx) => (
+                                                <div key={idx} className="space-y-1 animate-in slide-in-from-left-2">
+                                                    <label className="text-[10px] font-black text-slate-400 uppercase flex justify-between">
+                                                        <span>Extension {idx + 1}</span>
+                                                        <button type="button" onClick={() => removeDynamicField('deskExtensions', idx)} className="text-red-500 text-[8px] hover:underline">Remove</button>
+                                                    </label>
+                                                    <input className="w-full p-2 bg-blue-50/50 border border-blue-100 rounded-lg text-sm font-bold text-blue-700" value={ext} onChange={e => updateDynamicField('deskExtensions', idx, e.target.value)} placeholder="e.g. 501" />
+                                                </div>
+                                            ))}
                                         </div>
-                                        <div className="space-y-1">
-                                            <label className="text-[10px] font-black text-slate-400 uppercase">Team</label>
-                                            <input required className="w-full p-2 bg-slate-50 border rounded-lg text-sm" value={formData.team} onChange={e => setFormData({...formData, team: e.target.value})} />
+                                    </section>
+
+                                    {/* Assets Section */}
+                                    <section className="bg-slate-900 -mx-6 -mb-6 p-6 rounded-b-2xl">
+                                        <h3 className="text-blue-400 font-black text-[10px] uppercase tracking-[0.2em] border-b border-white/10 pb-2 mb-4">Asset Allocation</h3>
+                                        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                                            <div className="space-y-1">
+                                                <label className="text-[10px] font-black text-slate-500 uppercase">Type</label>
+                                                <select className="w-full p-2 bg-white/5 border border-white/10 rounded-lg text-sm text-white" value={formData.itAsset} onChange={e => setFormData({...formData, itAsset: e.target.value})}>
+                                                    <option className="text-black">Laptop</option>
+                                                    <option className="text-black">Desktop</option>
+                                                </select>
+                                            </div>
+                                            <div className="space-y-1">
+                                                <label className="text-[10px] font-black text-slate-500 uppercase">Hardware Model</label>
+                                                <input className="w-full p-2 bg-white/5 border border-white/10 rounded-lg text-sm text-white" value={formData.model} onChange={e => setFormData({...formData, model: e.target.value})} />
+                                            </div>
+                                            <div className="space-y-1">
+                                                <label className="text-[10px] font-black text-slate-500 uppercase">Processor</label>
+                                                <input className="w-full p-2 bg-white/5 border border-white/10 rounded-lg text-sm text-white" value={formData.processor} onChange={e => setFormData({...formData, processor: e.target.value})} />
+                                            </div>
+                                            <div className="space-y-1">
+                                                <label className="text-[10px] font-black text-slate-500 uppercase">MAC ID</label>
+                                                <input className="w-full p-2 bg-white/5 border border-white/10 rounded-lg text-sm text-white" value={formData.macId} onChange={e => setFormData({...formData, macId: e.target.value})} />
+                                            </div>
                                         </div>
-                                        <div className="space-y-1">
-                                            <label className="text-[10px] font-black text-slate-400 uppercase">Hardware Model</label>
-                                            <input className="w-full p-2 bg-slate-50 border rounded-lg text-sm" value={formData.model} onChange={e => setFormData({...formData, model: e.target.value})} />
+                                        <div className="flex justify-end gap-3 mt-8 pt-6 border-t border-white/10">
+                                            <button type="button" onClick={() => setIsModalOpen(false)} className="px-4 py-2 text-slate-400 text-xs font-bold uppercase hover:text-white transition-colors">Cancel</button>
+                                            <button type="submit" className="px-8 py-2 bg-blue-600 text-white rounded-lg text-xs font-black uppercase shadow-lg shadow-blue-500/20 hover:bg-blue-500 transition-all">Submit Profile</button>
                                         </div>
-                                        <div className="space-y-1">
-                                            <label className="text-[10px] font-black text-slate-400 uppercase">MAC ID</label>
-                                            <input className="w-full p-2 bg-slate-50 border rounded-lg text-sm" value={formData.macId} onChange={e => setFormData({...formData, macId: e.target.value})} />
-                                        </div>
-                                        <div className="space-y-1">
-                                            <label className="text-[10px] font-black text-slate-400 uppercase">Reporting Manager</label>
-                                            <input required className="w-full p-2 bg-slate-50 border rounded-lg text-sm" value={formData.manager} onChange={e => setFormData({...formData, manager: e.target.value})} />
-                                        </div>
-                                        <div className="space-y-1">
-                                            <label className="text-[10px] font-black text-slate-400 uppercase">Reporting Lead</label>
-                                            <input required className="w-full p-2 bg-slate-50 border rounded-lg text-sm" value={formData.lead} onChange={e => setFormData({...formData, lead: e.target.value})} />
-                                        </div>
-                                    </div>
-                                    <div className="flex justify-end gap-3 pt-6 border-t">
-                                        <button type="button" onClick={() => setIsModalOpen(false)} className="px-4 py-2 bg-slate-100 rounded-lg text-xs font-bold uppercase">Cancel</button>
-                                        <button type="submit" className="px-6 py-2 bg-blue-600 text-white rounded-lg text-xs font-bold uppercase shadow-lg shadow-blue-200">Save Record</button>
-                                    </div>
+                                    </section>
                                 </form>
                             </div>
                         </div>
