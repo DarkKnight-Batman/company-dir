@@ -39,17 +39,32 @@
         const { useState, useMemo, useEffect, useRef } = React;
 
         // --- FIREBASE INITIALIZATION ---
-        const firebaseConfig = {
-            apiKey: "AIzaSyC5k5UlWkKvuvESjnxP2hVp-wItaE4Mw4Q",
-            authDomain: "company-dir-91248.firebaseapp.com",
-            projectId: "company-dir-91248",
-            storageBucket: "company-dir-91248.firebasestorage.app",
-            messagingSenderId: "945717314104",
-            appId: "1:945717314104:web:214ae315f557e7281d1ccd",
-            measurementId: "G-86ZNRXX74G"
-        };
+        // Dynamically choose between environment config and user hardcoded config
+        let firebaseConfig;
+        try {
+            firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
+                apiKey: "AIzaSyC5k5UlWkKvuvESjnxP2hVp-wItaE4Mw4Q",
+                authDomain: "company-dir-91248.firebaseapp.com",
+                projectId: "company-dir-91248",
+                storageBucket: "company-dir-91248.firebasestorage.app",
+                messagingSenderId: "945717314104",
+                appId: "1:945717314104:web:214ae315f557e7281d1ccd",
+                measurementId: "G-86ZNRXX74G"
+            };
+        } catch (e) {
+            firebaseConfig = {
+                apiKey: "AIzaSyC5k5UlWkKvuvESjnxP2hVp-wItaE4Mw4Q",
+                authDomain: "company-dir-91248.firebaseapp.com",
+                projectId: "company-dir-91248",
+                storageBucket: "company-dir-91248.firebasestorage.app",
+                messagingSenderId: "945717314104",
+                appId: "1:945717314104:web:214ae315f557e7281d1ccd",
+                measurementId: "G-86ZNRXX74G"
+            };
+        }
 
-        const appId = 'company-dir-91248';
+        // CRITICAL: Must use __app_id if available to satisfy Firestore security rules in preview
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'company-dir-91248';
         
         if (!firebase.apps.length) {
             firebase.initializeApp(firebaseConfig);
@@ -114,10 +129,15 @@
             };
             const [formData, setFormData] = useState(initialFormState);
 
+            // Authentication logic
             useEffect(() => {
                 const initAuth = async () => {
                     try {
-                        await auth.signInAnonymously();
+                        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                            await auth.signInWithCustomToken(__initial_auth_token);
+                        } else {
+                            await auth.signInAnonymously();
+                        }
                     } catch (error) {
                         setAuthError(error.message);
                     }
@@ -130,9 +150,12 @@
                 return () => unsubscribe();
             }, []);
 
+            // Firestore real-time sync - Strictly following Rule 1 path
             useEffect(() => {
                 if (!user) return;
+                
                 const employeesCollection = db.collection('artifacts').doc(appId).collection('public').doc('data').collection('employees');
+                
                 const unsubscribe = employeesCollection.onSnapshot(
                     (snapshot) => {
                         const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -140,6 +163,7 @@
                         setLoading(false);
                     },
                     (error) => {
+                        console.error("Firestore sync error:", error);
                         setLoading(false);
                     }
                 );
@@ -201,7 +225,12 @@
                     }
                 };
 
-                delete preparedData.processor; delete preparedData.macId; delete preparedData.model; delete preparedData.serialId; delete preparedData.cpuType;
+                // Remove flattened helper fields before saving
+                delete preparedData.processor; 
+                delete preparedData.macId; 
+                delete preparedData.model; 
+                delete preparedData.serialId; 
+                delete preparedData.cpuType;
 
                 const employeesCollection = db.collection('artifacts').doc(appId).collection('public').doc('data').collection('employees');
 
@@ -215,6 +244,10 @@
                     setIsModalOpen(false);
                 } catch (error) {
                     console.error("Save error:", error);
+                    // Inform the UI of specific permission issues
+                    if (error.code === 'permission-denied') {
+                        alert("Database permission denied. Ensure you are using the correct artifact path.");
+                    }
                 }
             };
 
@@ -245,7 +278,7 @@
             const statuses = ['All', 'Active', 'Notice Period', 'Resigned', 'Terminated', 'Absconded'];
 
             if (authError) return <div className="min-h-screen flex items-center justify-center p-6 text-center"><div><Icon name="alert-circle" className="text-red-600 mb-2" size={32} /><h2 className="text-xl font-bold">Service Error</h2><p className="text-slate-500">{authError}</p></div></div>;
-            if (loading && !user) return <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50"><div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div><p className="mt-4 text-slate-500 font-bold uppercase tracking-widest text-[10px]">Initializing...</p></div>;
+            if (loading && !user) return <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50"><div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div><p className="mt-4 text-slate-500 font-bold uppercase tracking-widest text-[10px]">Initializing Identity Cloud...</p></div>;
 
             return (
                 <div className="min-h-screen flex flex-col">
@@ -273,7 +306,7 @@
                         <div className="bg-white rounded-xl shadow-sm border p-4 mb-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
                             <div className="relative lg:col-span-1">
                                 <Icon name="search" size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                                <input type="text" placeholder="Search ID, Name..." className="w-full pl-10 pr-4 py-2 bg-slate-50 border rounded-lg text-sm outline-none" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+                                <input type="text" placeholder="Search ID, Name..." className="w-full pl-10 pr-4 py-2 bg-slate-50 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
                             </div>
                             <select className="p-2 bg-slate-50 border rounded-lg text-sm" value={selectedBranch} onChange={e => setSelectedBranch(e.target.value)}>{branches.map(b => <option key={b} value={b}>{b}</option>)}</select>
                             <select className="p-2 bg-slate-50 border rounded-lg text-sm" value={selectedTeam} onChange={e => setSelectedTeam(e.target.value)}>{teams.map(t => <option key={t} value={t}>{t}</option>)}</select>
