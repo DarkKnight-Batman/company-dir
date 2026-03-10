@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CorpDir Pro - Enterprise Directory</title>
+    <!-- React & ReactDOM -->
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <!-- Babel for JSX in-browser -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+        body { font-family: 'Inter', sans-serif; }
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 10px; }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-900">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useMemo, useEffect, useRef } = React;
+
+        /**
+         * Enhanced Icon Component
+         * Fixed: Uses a ref and manually managed innerHTML to prevent React's 
+         * reconciliation from conflicting with Lucide's DOM manipulation.
+         */
+        const Icon = ({ name, size = 18, className = "" }) => {
+            const containerRef = useRef(null);
+
+            useEffect(() => {
+                if (window.lucide && containerRef.current) {
+                    // Inject the placeholder element that Lucide looks for
+                    containerRef.current.innerHTML = `<i data-lucide="${name}"></i>`;
+                    
+                    // Run Lucide specifically on this container
+                    window.lucide.createIcons({
+                        root: containerRef.current,
+                        attrs: {
+                            width: size,
+                            height: size,
+                            class: className
+                        }
+                    });
+                }
+            }, [name, size, className]);
+
+            // We return a stable wrapper that React manages. 
+            // React won't touch the children because it thinks there are none.
+            return <span ref={containerRef} className="inline-flex items-center justify-center leading-none"></span>;
+        };
+
+        const STATUS_CONFIG = {
+            'Active': { color: 'bg-emerald-100 text-emerald-700 border-emerald-200', icon: 'check-circle' },
+            'Notice Period': { color: 'bg-amber-100 text-amber-700 border-amber-200', icon: 'clock' },
+            'Resigned': { color: 'bg-slate-100 text-slate-600 border-slate-200', icon: 'file-text' },
+            'Terminated': { color: 'bg-red-100 text-red-700 border-red-200', icon: 'user-minus' },
+            'Absconded': { color: 'bg-rose-100 text-rose-800 border-rose-200', icon: 'alert-triangle' },
+        };
+
+        const InfoItem = ({ label, value, highlight }) => (
+            <div className="group">
+                <span className="text-[10px] text-slate-400 block mb-0.5 group-hover:text-blue-500 transition-colors uppercase font-bold tracking-wider">
+                    {label}
+                </span>
+                <p className={`text-sm font-medium break-all ${highlight ? 'text-blue-700' : 'text-slate-800'}`}>
+                    {value || 'N/A'}
+                </p>
+            </div>
+        );
+
+        const App = () => {
+            const [employees, setEmployees] = useState([
+                {
+                    id: '1',
+                    status: 'Active',
+                    branch: 'Bangalore',
+                    team: 'Engineering',
+                    designation: 'Senior Software Engineer',
+                    fullName: 'Arjun Sharma',
+                    firstName: 'Arjun',
+                    lastName: 'Sharma',
+                    preferredName: 'Arj',
+                    dob: '1992-05-15',
+                    number: '9876543210',
+                    email: 'arjun.s@company.com',
+                    additionalEmails: ['arjun.personal@gmail.com'],
+                    primaryCompanyMail: 'arjun.sharma@hq.company.com',
+                    aadhar: '1234-5678-9012',
+                    pan: 'ABCDE1234F',
+                    lead: 'Siddharth V',
+                    manager: 'Priya Nair',
+                    itAsset: 'Laptop',
+                    systemDetails: {
+                        processor: 'Apple M2',
+                        macId: '00:1A:2B:3C:4D:5E',
+                        model: 'MacBook Pro 14"',
+                        cpuType: 'ARM'
+                    },
+                    deskPhones: 2
+                }
+            ]);
+
+            const [searchTerm, setSearchTerm] = useState('');
+            const [selectedBranch, setSelectedBranch] = useState('All');
+            const [selectedTeam, setSelectedTeam] = useState('All');
+            const [selectedStatus, setSelectedStatus] = useState('All');
+            const [selectedEmployee, setSelectedEmployee] = useState(null);
+            const [isModalOpen, setIsModalOpen] = useState(false);
+            const [editingEmployee, setEditingEmployee] = useState(null);
+
+            const initialFormState = {
+                status: 'Active', branch: '', team: '', designation: '', fullName: '', 
+                firstName: '', lastName: '', preferredName: '', dob: '', number: '', 
+                email: '', additionalEmails: '', primaryCompanyMail: '', aadhar: '', 
+                pan: '', lead: '', manager: '', itAsset: 'Laptop', processor: '', 
+                macId: '', model: '', cpuType: 'x86_64', deskPhones: 0
+            };
+            const [formData, setFormData] = useState(initialFormState);
+
+            const branches = useMemo(() => ['All', ...new Set(employees.map(e => e.branch))].filter(Boolean), [employees]);
+            const teams = useMemo(() => ['All', ...new Set(employees.map(e => e.team))].filter(Boolean), [employees]);
+            const statuses = ['All', 'Active', 'Notice Period', 'Resigned', 'Terminated', 'Absconded'];
+
+            const filteredEmployees = useMemo(() => {
+                return employees.filter(emp => {
+                    const s = searchTerm.toLowerCase();
+                    return (emp.fullName.toLowerCase().includes(s) || emp.email.toLowerCase().includes(s) || emp.designation.toLowerCase().includes(s)) &&
+                           (selectedBranch === 'All' || emp.branch === selectedBranch) &&
+                           (selectedTeam === 'All' || emp.team === selectedTeam) &&
+                           (selectedStatus === 'All' || emp.status === selectedStatus);
+                });
+            }, [employees, searchTerm, selectedBranch, selectedTeam, selectedStatus]);
+
+            const handleOpenModal = (emp = null) => {
+                if (emp) {
+                    setEditingEmployee(emp);
+                    setFormData({
+                        ...emp,
+                        additionalEmails: emp.additionalEmails.join(', '),
+                        processor: emp.systemDetails.processor,
+                        macId: emp.systemDetails.macId,
+                        model: emp.systemDetails.model,
+                        cpuType: emp.systemDetails.cpuType,
+                    });
+                } else {
+                    setEditingEmployee(null);
+                    setFormData(initialFormState);
+                }
+                setIsModalOpen(true);
+            };
+
+            const handleSave = (e) => {
+                e.preventDefault();
+                const preparedData = {
+                    ...formData,
+                    id: editingEmployee ? editingEmployee.id : Date.now().toString(),
+                    additionalEmails: formData.additionalEmails.split(',').map(s => s.trim()).filter(Boolean),
+                    systemDetails: {
+                        processor: formData.processor,
+                        macId: formData.macId,
+                        model: formData.model,
+                        cpuType: formData.cpuType
+                    }
+                };
+
+                if (editingEmployee) {
+                    setEmployees(employees.map(emp => emp.id === editingEmployee.id ? preparedData : emp));
+                    setSelectedEmployee(preparedData);
+                } else {
+                    setEmployees([...employees, preparedData]);
+                }
+                setIsModalOpen(false);
+            };
+
+            const handleDelete = (id) => {
+                if (confirm("Delete this record permanently?")) {
+                    setEmployees(employees.filter(e => e.id !== id));
+                    setSelectedEmployee(null);
+                }
+            };
+
+            const exportToCSV = () => {
+                const headers = ["Status", "Branch", "Team", "Designation", "Full Name", "Email", "Asset Model"];
+                const rows = employees.map(e => [e.status, e.branch, e.team, e.designation, e.fullName, e.email, e.systemDetails.model]);
+                const csvContent = [headers, ...rows].map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n");
+                const link = document.createElement("a");
+                link.href = URL.createObjectURL(new Blob([csvContent], { type: 'text/csv;charset=utf-8;' }));
+                link.download = `corp_directory.csv`;
+                link.click();
+            };
+
+            return (
+                <div className="min-h-screen flex flex-col">
+                    <header className="bg-white border-b border-slate-200 sticky top-0 z-30 px-6 py-4 shadow-sm">
+                        <div className="max-w-7xl mx-auto flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                                <div className="bg-blue-600 p-2 rounded-lg flex items-center justify-center"><Icon name="users" className="text-white" /></div>
+                                <h1 className="text-xl font-extrabold tracking-tight text-slate-800">CorpDir <span className="text-blue-600">Pro</span></h1>
+                            </div>
+                            <div className="flex gap-2">
+                                <button onClick={() => handleOpenModal()} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-bold text-sm transition-all active:scale-95"><Icon name="plus" size={16}/> Add</button>
+                                <button onClick={exportToCSV} className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg font-bold text-sm transition-all"><Icon name="download" size={16}/> Export</button>
+                            </div>
+                        </div>
+                    </header>
+
+                    <main className="max-w-7xl mx-auto w-full p-4 md:p-6 flex-grow">
+                        <div className="bg-white rounded-xl shadow-sm border p-4 mb-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+                            <div className="relative lg:col-span-1">
+                                <Icon name="search" size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                                <input type="text" placeholder="Search..." className="w-full pl-10 pr-4 py-2 bg-slate-50 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+                            </div>
+                            <select className="p-2 bg-slate-50 border rounded-lg text-sm outline-none" value={selectedBranch} onChange={e => setSelectedBranch(e.target.value)}>
+                                {branches.map(b => <option key={b} value={b}>{b === 'All' ? 'All Branches' : b}</option>)}
+                            </select>
+                            <select className="p-2 bg-slate-50 border rounded-lg text-sm outline-none" value={selectedTeam} onChange={e => setSelectedTeam(e.target.value)}>
+                                {teams.map(t => <option key={t} value={t}>{t === 'All' ? 'All Teams' : t}</option>)}
+                            </select>
+                            <select className="p-2 bg-slate-50 border rounded-lg text-sm outline-none" value={selectedStatus} onChange={e => setSelectedStatus(e.target.value)}>
+                                {statuses.map(s => <option key={s} value={s}>{s === 'All' ? 'All Status' : s}</option>)}
+                            </select>
+                            <div className="flex items-center justify-end font-black text-blue-600 text-[10px] uppercase tracking-tighter">
+                                {filteredEmployees.length} RECORDS FOUND
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-full items-start">
+                            <div className={`lg:col-span-1 space-y-2 ${selectedEmployee ? 'hidden lg:block' : 'block'}`}>
+                                {filteredEmployees.map(emp => (
+                                    <div key={emp.id} onClick={() => setSelectedEmployee(emp)} className={`p-4 rounded-xl border cursor-pointer transition-all flex items-center justify-between group ${selectedEmployee?.id === emp.id ? 'bg-blue-600 border-blue-600 text-white shadow-lg translate-x-1' : 'bg-white hover:border-blue-300'}`}>
+                                        <div className="flex items-center gap-3 overflow-hidden">
+                                            <div className="relative shrink-0">
+                                                <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-xs ${selectedEmployee?.id === emp.id ? 'bg-white/20' : 'bg-slate-100 text-slate-600'}`}>
+                                                    {emp.firstName?.[0]}{emp.lastName?.[0]}
+                                                </div>
+                                                <div className={`absolute -bottom-1 -right-1 w-3 h-3 rounded-full border-2 ${selectedEmployee?.id === emp.id ? 'border-blue-600' : 'border-white'} ${STATUS_CONFIG[emp.status].color.split(' ')[0]}`}></div>
+                                            </div>
+                                            <div className="overflow-hidden">
+                                                <div className="font-bold truncate text-sm">{emp.fullName}</div>
+                                                <div className={`text-[10px] font-black uppercase truncate tracking-tighter ${selectedEmployee?.id === emp.id ? 'text-blue-100' : 'text-blue-600'}`}>
+                                                    {emp.designation}
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <Icon name="chevron-right" size={14} className={selectedEmployee?.id === emp.id ? 'opacity-50' : 'text-slate-300'} />
+                                    </div>
+                                ))}
+                            </div>
+
+                            <div className="lg:col-span-2">
+                                {selectedEmployee ? (
+                                    <div className="bg-white rounded-2xl shadow-xl border overflow-hidden">
+                                        <div className="bg-slate-900 p-6 md:p-8 text-white relative">
+                                            <div className="absolute top-4 right-4 flex gap-2">
+                                                <button onClick={() => handleOpenModal(selectedEmployee)} className="p-2 bg-white/10 hover:bg-white/20 rounded-lg"><Icon name="edit-2" size={16}/></button>
+                                                <button onClick={() => handleDelete(selectedEmployee.id)} className="p-2 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-lg"><Icon name="trash-2" size={16}/></button>
+                                            </div>
+                                            <button onClick={() => setSelectedEmployee(null)} className="lg:hidden text-slate-400 font-bold text-[10px] mb-4 flex items-center gap-1"><Icon name="arrow-left" size={12}/> BACK</button>
+                                            <div className="flex flex-col md:flex-row items-center gap-6">
+                                                <div className="w-20 h-20 rounded-2xl bg-blue-600 flex items-center justify-center text-3xl font-black ring-4 ring-white/10 shrink-0">
+                                                    {selectedEmployee.firstName?.[0]}
+                                                </div>
+                                                <div className="text-center md:text-left">
+                                                    <h2 className="text-2xl font-bold">{selectedEmployee.fullName}</h2>
+                                                    <div className="text-blue-400 text-[10px] font-black uppercase tracking-widest mt-1">{selectedEmployee.designation}</div>
+                                                    <div className={`mt-3 inline-block px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-widest border ${STATUS_CONFIG[selectedEmployee.status].color}`}>
+                                                        {selectedEmployee.status}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div className="p-6 md:p-8 grid grid-cols-1 md:grid-cols-2 gap-8">
+                                            <div className="space-y-6">
+                                                <h3 className="text-blue-600 font-black text-[10px] uppercase tracking-[0.2em] border-b pb-2">Identity Details</h3>
+                                                <div className="grid grid-cols-2 gap-4">
+                                                    <InfoItem label="Aadhar" value={selectedEmployee.aadhar} />
+                                                    <InfoItem label="PAN" value={selectedEmployee.pan} />
+                                                    <InfoItem label="DOB" value={selectedEmployee.dob} />
+                                                    <InfoItem label="Mobile" value={selectedEmployee.number} />
+                                                </div>
+                                                <InfoItem label="Company Mail" value={selectedEmployee.primaryCompanyMail} highlight />
+                                            </div>
+                                            <div className="space-y-6">
+                                                <h3 className="text-blue-600 font-black text-[10px] uppercase tracking-[0.2em] border-b pb-2">IT Hardware</h3>
+                                                <div className="bg-slate-50 p-4 rounded-xl space-y-3">
+                                                    <InfoItem label="Asset Model" value={selectedEmployee.systemDetails.model} />
+                                                    <InfoItem label="Processor" value={selectedEmployee.systemDetails.processor} />
+                                                    <InfoItem label="MAC Identifier" value={selectedEmployee.systemDetails.macId} />
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <div className="h-64 flex flex-col items-center justify-center text-slate-300 border-4 border-dashed rounded-3xl">
+                                        <Icon name="users" size={48} className="mb-2 opacity-20" />
+                                        <p className="text-sm font-bold uppercase tracking-widest">Select an identity profile</p>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    </main>
+
+                    {isModalOpen && (
+                        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm overflow-y-auto">
+                            <div className="bg-white w-full max-w-2xl rounded-2xl shadow-2xl animate-in zoom-in-95 duration-200 my-auto">
+                                <div className="px-6 py-4 bg-slate-900 text-white flex justify-between items-center rounded-t-2xl">
+                                    <h2 className="font-bold uppercase tracking-widest text-sm">{editingEmployee ? 'Update Profile' : 'New Employee'}</h2>
+                                    <button onClick={() => setIsModalOpen(false)}><Icon name="x" /></button>
+                                </div>
+                                <form onSubmit={handleSave} className="p-6 max-h-[80vh] overflow-y-auto custom-scrollbar space-y-6">
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        <div className="space-y-1">
+                                            <label className="text-[10px] font-black text-slate-400 uppercase">Full Name</label>
+                                            <input required className="w-full p-2 bg-slate-50 border rounded-lg text-sm" value={formData.fullName} onChange={e => setFormData({...formData, fullName: e.target.value})} />
+                                        </div>
+                                        <div className="space-y-1">
+                                            <label className="text-[10px] font-black text-slate-400 uppercase">Designation</label>
+                                            <input required className="w-full p-2 bg-slate-50 border rounded-lg text-sm" value={formData.designation} onChange={e => setFormData({...formData, designation: e.target.value})} />
+                                        </div>
+                                        <div className="space-y-1">
+                                            <label className="text-[10px] font-black text-slate-400 uppercase">Status</label>
+                                            <select className="w-full p-2 bg-slate-50 border rounded-lg text-sm" value={formData.status} onChange={e => setFormData({...formData, status: e.target.value})}>
+                                                {statuses.filter(s => s !== 'All').map(s => <option key={s} value={s}>{s}</option>)}
+                                            </select>
+                                        </div>
+                                        <div className="space-y-1">
+                                            <label className="text-[10px] font-black text-slate-400 uppercase">Primary Email</label>
+                                            <input required type="email" className="w-full p-2 bg-slate-50 border rounded-lg text-sm" value={formData.primaryCompanyMail} onChange={e => setFormData({...formData, primaryCompanyMail: e.target.value})} />
+                                        </div>
+                                        <div className="space-y-1">
+                                            <label className="text-[10px] font-black text-slate-400 uppercase">Branch</label>
+                                            <input required className="w-full p-2 bg-slate-50 border rounded-lg text-sm" value={formData.branch} onChange={e => setFormData({...formData, branch: e.target.value})} />
+                                        </div>
+                                        <div className="space-y-1">
+                                            <label className="text-[10px] font-black text-slate-400 uppercase">Team</label>
+                                            <input required className="w-full p-2 bg-slate-50 border rounded-lg text-sm" value={formData.team} onChange={e => setFormData({...formData, team: e.target.value})} />
+                                        </div>
+                                        <div className="space-y-1">
+                                            <label className="text-[10px] font-black text-slate-400 uppercase">Hardware Model</label>
+                                            <input className="w-full p-2 bg-slate-50 border rounded-lg text-sm" value={formData.model} onChange={e => setFormData({...formData, model: e.target.value})} />
+                                        </div>
+                                        <div className="space-y-1">
+                                            <label className="text-[10px] font-black text-slate-400 uppercase">MAC ID</label>
+                                            <input className="w-full p-2 bg-slate-50 border rounded-lg text-sm" value={formData.macId} onChange={e => setFormData({...formData, macId: e.target.value})} />
+                                        </div>
+                                        <div className="space-y-1">
+                                            <label className="text-[10px] font-black text-slate-400 uppercase">Reporting Manager</label>
+                                            <input required className="w-full p-2 bg-slate-50 border rounded-lg text-sm" value={formData.manager} onChange={e => setFormData({...formData, manager: e.target.value})} />
+                                        </div>
+                                        <div className="space-y-1">
+                                            <label className="text-[10px] font-black text-slate-400 uppercase">Reporting Lead</label>
+                                            <input required className="w-full p-2 bg-slate-50 border rounded-lg text-sm" value={formData.lead} onChange={e => setFormData({...formData, lead: e.target.value})} />
+                                        </div>
+                                    </div>
+                                    <div className="flex justify-end gap-3 pt-6 border-t">
+                                        <button type="button" onClick={() => setIsModalOpen(false)} className="px-4 py-2 bg-slate-100 rounded-lg text-xs font-bold uppercase">Cancel</button>
+                                        <button type="submit" className="px-6 py-2 bg-blue-600 text-white rounded-lg text-xs font-bold uppercase shadow-lg shadow-blue-200">Save Record</button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
